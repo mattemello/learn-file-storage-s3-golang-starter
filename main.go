@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -28,7 +29,10 @@ type apiConfig struct {
 
 func main() {
 	godotenv.Load(".env")
-	config.LoadDefaultConfig()
+	cfgs3, err := config.LoadDefaultConfig(context.Background())
+	if err != nil {
+		log.Fatal("config of s3 is not working")
+	}
 
 	pathToDB := os.Getenv("DB_PATH")
 	if pathToDB == "" {
@@ -89,6 +93,7 @@ func main() {
 		s3Bucket:         s3Bucket,
 		s3Region:         s3Region,
 		s3CfDistribution: s3CfDistribution,
+		s3Client:         s3.NewFromConfig(cfgs3),
 		port:             port,
 	}
 
