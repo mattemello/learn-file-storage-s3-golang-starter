@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base32"
+	"encoding/json"
 	"io"
 	"mime"
 	"os"
+	"os/exec"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
@@ -83,6 +86,12 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	ratio, err := getVideoAspectRatio(fil.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error in the take of the aspect ratio", err)
+		return
+	}
+
 	var nameVide = make([]byte, 20)
 
 	_, err = rand.Read(nameVide)
@@ -93,6 +102,13 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 
 	nameVideo := base32.HexEncoding.EncodeToString(nameVide)
 
+	if ratio == "16:9" {
+		nameVideo = "landscape/" + nameVideo
+	} else if ratio == "9:16" {
+		nameVideo = "portrait/" + nameVideo
+	} else {
+		nameVideo = "other/" + nameVideo
+	}
 	nameVideo += ".mp4"
 
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{Bucket: &nameBucket, Key: &nameVideo, Body: fil, ContentType: &contType})
@@ -107,4 +123,42 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	cfg.db.UpdateVideo(video)
 
 	respondWithJSON(w, http.StatusOK, video)
+}
+
+type ffmpeg struct {
+	Streams []struct {
+		Width              int    `json:"width"`
+		Height             int    `json:"height"`
+		DisplayAspectRatio string `json:"display_aspect_ratio"`
+	} `json:"streams"`
+}
+
+func getVideoAspectRatio(filepath string) (string, error) {
+
+	cmd := exec.Command("ffprobe", "-v", "error", "-print_format", "json", "-show_streams", filepath)
+	var output bytes.Buffer
+
+	cmd.Stdout = &output
+
+	err := cmd.Run()
+	if err != nil {
+		return "", err
+	}
+
+	var jsonobj ffmpeg
+
+	err = json.Unmarshal(output.Bytes(), &jsonobj)
+	if err != nil {
+		return "", err
+	}
+
+	return jsonobj.Streams[0].DisplayAspectRatio, nil
+}
+
+func gcdf(a, b int) int {
+	if b == 0 {
+		return a
+	}
+
+	return gcdf(b, a%b)
 }
