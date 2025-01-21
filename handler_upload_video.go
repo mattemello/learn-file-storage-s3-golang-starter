@@ -9,6 +9,7 @@ import (
 	"mime"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
@@ -71,7 +72,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Can't create the file in the system", err)
 		return
 	}
-	defer os.Remove("tubely-upload.mp4")
+	defer os.Remove(fil.Name())
 	defer fil.Close()
 
 	_, err = io.Copy(fil, mult)
@@ -92,6 +93,20 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	processdVide, err := processVideoFroFastStart(fil.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error in the prossing of the video", err)
+		return
+	}
+
+	filProcess, err := os.Open(processdVide)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error in the open of the prossing of the video", err)
+		return
+	}
+	defer os.Remove(filProcess.Name())
+	defer filProcess.Close()
+
 	var nameVide = make([]byte, 20)
 
 	_, err = rand.Read(nameVide)
@@ -111,7 +126,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 	nameVideo += ".mp4"
 
-	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{Bucket: &nameBucket, Key: &nameVideo, Body: fil, ContentType: &contType})
+	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{Bucket: &nameBucket, Key: &nameVideo, Body: filProcess, ContentType: &contType})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "It can't be saved", err)
 		return
@@ -155,10 +170,15 @@ func getVideoAspectRatio(filepath string) (string, error) {
 	return jsonobj.Streams[0].DisplayAspectRatio, nil
 }
 
-func gcdf(a, b int) int {
-	if b == 0 {
-		return a
+func processVideoFroFastStart(filepath string) (string, error) {
+	fastStartFilePath := strings.Split(filepath, ".")[0] + ".processing." + strings.Split(filepath, ".")[1]
+
+	cmd := exec.Command("ffmpeg", "-i", filepath, "-c", "copy", "-movflags", "faststart", "-f", "mp4", fastStartFilePath)
+
+	err := cmd.Run()
+	if err != nil {
+		return "", err
 	}
 
-	return gcdf(b, a%b)
+	return fastStartFilePath, nil
 }
